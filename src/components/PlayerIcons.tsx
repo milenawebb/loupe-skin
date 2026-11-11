@@ -26,6 +26,9 @@ export function FullscreenIcon({ exit = false }: { exit?: boolean }) {
 export function CloseIcon() {
   return <Icon><path d="M5 5 19 19M19 5 5 19" /></Icon>;
 }
+export function CheckIcon() {
+  return <Icon><path d="m5 12 5 5L20 7" /></Icon>;
+}
 export function SaveIcon() {
   return <Icon><path d="M12 3v12m-5-5 5 5 5-5M3 16v5h18v-5" /></Icon>;
 }

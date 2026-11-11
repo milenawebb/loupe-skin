@@ -1,14 +1,15 @@
 /** All sources use one measured-width sheet; strip tiles retain a 44px minimum. */
 export const SHEET_GAP = 4;
 export function frameThickness(playerWidth: number) {
-  return Math.max(8, Math.min(14, playerWidth * 0.008));
+  return playerWidth < 640 ? 16 : playerWidth < 900 ? 20 : 28;
 }
 /** Solve content + both borders against the container without a resize loop. */
-export function playerFrameMetrics(ratio: number, heightLimit: number, containerWidth: number) {
-  const containerContent = containerWidth <= 1016 ? containerWidth - 16
-    : containerWidth <= 1778 ? containerWidth / 1.016 : containerWidth - 28;
-  const width = Math.max(0, Math.min(ratio * heightLimit, containerContent));
-  return { width, thickness: frameThickness(width) };
+export function playerFrameMetrics(ratio: number, heightLimit: number, containerWidth: number, frame: "glass" | "none" = "none", viewportWidth = containerWidth) {
+  const unframed = Math.max(0, Math.min(ratio * heightLimit, containerWidth));
+  if (frame === "none") return { width: unframed, thickness: 0 };
+  const thickness = viewportWidth < 640 ? 10 : Math.min(ratio * heightLimit, containerWidth - 56) >= 900 ? 28 : Math.min(ratio * heightLimit, containerWidth - 40) >= 640 ? 20 : 16;
+  const width = Math.max(0, Math.min(ratio * heightLimit, containerWidth - 2 * thickness));
+  return { width, thickness };
 }
 export function contactSheetTileWidth(contentWidth: number, playerWidth = contentWidth) {
   const columns = sheetColumns(contentWidth, 0, playerWidth);

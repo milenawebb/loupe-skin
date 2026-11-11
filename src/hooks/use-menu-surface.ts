@@ -2,10 +2,11 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 
 /** Shared interaction policy for every player-local menu surface. */
-export function useMenuSurface({ open, setOpen, menu, trigger, host, onOpenChange }: {
+export function useMenuSurface({ open, setOpen, menu, trigger, host, onOpenChange, trapTab = true }: {
   open: boolean; setOpen: (open: boolean) => void;
   menu: RefObject<HTMLDivElement | null>; trigger: RefObject<HTMLElement | null>;
   host: RefObject<HTMLDivElement | null>; onOpenChange?: (open: boolean) => void;
+  trapTab?: boolean;
 }) {
   const callbacks = useRef({ setOpen, onOpenChange });
   callbacks.current = { setOpen, onOpenChange };
@@ -39,6 +40,7 @@ export function useMenuSurface({ open, setOpen, menu, trigger, host, onOpenChang
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); close(); return; }
       if (event.key !== "Tab") return;
+      if (!trapTab) { close(); return; }
       event.preventDefault(); event.stopImmediatePropagation();
       const items = Array.from(popup.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]'))
         .filter((item) => item.getClientRects().length > 0 && !item.closest('[inert]'));
@@ -60,6 +62,6 @@ export function useMenuSurface({ open, setOpen, menu, trigger, host, onOpenChang
       owner.removeEventListener("sheet-menu-opening", opening);
       owner.removeEventListener("sheet-close-menus", close);
     };
-  }, [open, menu, trigger, host, close]);
+  }, [open, menu, trigger, host, close, trapTab]);
   return { close, show, toggle: () => open ? close() : show() };
 }

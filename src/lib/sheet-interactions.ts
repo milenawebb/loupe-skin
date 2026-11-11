@@ -1,10 +1,17 @@
+import { TILE_TIME_TOLERANCE } from "@/lib/sheet-seek";
+
 export function frameAtTime(tiles: readonly { start: number }[], time: number) {
   let index = 0;
-  for (let i = 0; i < tiles.length; i++) if ((tiles[i]?.start ?? Infinity) <= time + 0.001) index = i;
+  for (let i = 0; i < tiles.length; i++) if ((tiles[i]?.start ?? Infinity) <= time + TILE_TIME_TOLERANCE) index = i;
   return index;
 }
 
 type Rect = { left: number; top: number; width: number; height: number };
+
+/** Sheet touch input is a tap only within an inclusive 8px movement radius. */
+export function sheetTouchIsTap(dx: number, dy: number) {
+  return Math.hypot(dx, dy) <= 8;
+}
 
 /** Decide once after an 8px dead zone; vertical gestures belong to the browser. */
 export function sheetGestureDirection(dx: number, dy: number) {

@@ -3,14 +3,18 @@ import type { RefObject } from "react";
 import { flushSync } from "react-dom";
 import { seekApproximate, SHEET_SEEK_FADE_DURATION, SHEET_SEEK_LOADING_DELAY } from "@/lib/sheet-seek";
 
-export function useSheetSeek(videoWrap: RefObject<HTMLDivElement | null>) {
+export function useSheetSeek(videoWrap: RefObject<HTMLDivElement | null>, playbackFrame?: number) {
   const [preview, setPreview] = useState<{ index: number; time: number; resolving: boolean; loading: boolean } | null>(null);
+  const [chosenFrame, setChosenFrame] = useState<number | null>(null);
   const pending = useRef(false);
   const resume = useRef(false);
   const holding = useRef(false);
   const loadingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const clear = () => { clearTimeout(loadingTimer.current); clearTimeout(fadeTimer.current); };
+  useEffect(() => {
+    if (!pending.current && chosenFrame !== null && playbackFrame === chosenFrame) setChosenFrame(null);
+  }, [playbackFrame, chosenFrame, preview]);
   useEffect(() => {
     const video = videoWrap.current?.querySelector("video");
     if (!video) return;
@@ -38,7 +42,7 @@ export function useSheetSeek(videoWrap: RefObject<HTMLDivElement | null>) {
     pending.current = true;
     resume.current = !video.paused && !video.ended;
     // Commit image, active tile and progress before the media starts seeking.
-    flushSync(() => setPreview({ index, time, resolving: false, loading: false }));
+    flushSync(() => { setChosenFrame(index); setPreview({ index, time, resolving: false, loading: false }); });
     loadingTimer.current = setTimeout(() => {
       if (pending.current) setPreview((current) => current ? { ...current, loading: true } : null);
     }, SHEET_SEEK_LOADING_DELAY);
@@ -52,5 +56,5 @@ export function useSheetSeek(videoWrap: RefObject<HTMLDivElement | null>) {
   };
   /** Drop a held overlay; playback is untouched. */
   const cancelHold = () => { holding.current = false; if (!pending.current) { clear(); setPreview(null); } };
-  return { preview, seek, hold, cancelHold };
+  return { preview, chosenFrame, seek, hold, cancelHold };
 }

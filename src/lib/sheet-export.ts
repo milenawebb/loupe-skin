@@ -1,3 +1,5 @@
+import { tileSeekTime } from "@/lib/sheet-seek";
+
 export type ExportSheet = {
   url: string; tile_width: number; tile_height: number; duration: number;
   tiles: { start: number; x: number; y: number }[];
@@ -108,7 +110,7 @@ export async function renderSheetCanvas(sheet: ExportSheet, title: string, pageU
     ctx.fillText(String(index + 1).padStart(2, "0"), x, y + grid.imageHeight + 8);
     ctx.textAlign = grid.stackedLabels ? "left" : "right";
     ctx.fillText(exportTimestamp(tile.start, sheet.duration), grid.stackedLabels ? x : x + grid.cellWidth, y + grid.imageHeight + (grid.stackedLabels ? 16 : 8));
-    return { x, y, width: grid.cellWidth, height: grid.cellHeight, time: tile.start };
+    return { x, y, width: grid.cellWidth, height: grid.cellHeight, time: tileSeekTime(sheet.tiles, index, sheet.duration) };
   });
   ctx.font = '7px "JetBrains Mono", monospace';
   ctx.fillStyle = PDF_THEME.dim;

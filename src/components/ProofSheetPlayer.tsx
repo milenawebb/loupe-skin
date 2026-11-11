@@ -9,32 +9,34 @@ import {
 import { videoFeatures } from "@videojs/react/video";
 import { MuxVideo } from "@videojs/react/media/mux-video";
 import { useEffect, useLayoutEffect, useRef, useState, useId } from "react";
-import { playerMenuLayout } from "@/lib/player-menu";
+import { KeyboardHelp } from "@/components/KeyboardHelp";
 import { playerFrameMetrics, playerVideoMetrics, snapAspectRatio, resolveAspectRatio, contactSheetTileWidth, stripTileWidth, sheetColumns } from "@/lib/player-layout";
 import { detectPlayerTheme } from "@/lib/player-theme";
 import type { PlayerTheme } from "@/lib/player-theme";
 import { revealOffset, useSheetChrome } from "@/hooks/use-sheet-chrome";
 import { Button } from "@/components/ui/button";
 import { useSheetTransition } from "@/hooks/use-sheet-transition";
-import { frameAtTime, frameUnderPointer, sheetGestureDirection } from "@/lib/sheet-interactions";
+import { useSheetScroll } from "@/hooks/use-sheet-scroll";
+import { togglePick } from "@/lib/sheet-picks";
+import { frameAtTime, frameUnderPointer, sheetTouchIsTap } from "@/lib/sheet-interactions";
 import type { RefObject } from "react";
 import { InstrumentPlay, TrackAndSpeedControls, VolumeControl } from "@/components/PlayerExtras";
 import { fullChromeVisible, hasCaptionTracks, durationKnown, resetEndedRate } from "@/lib/playback-controls";
-import { gridDestination, playerShortcut, frameAccessibleName, SHORTCUT_LIST } from "@/lib/player-keyboard";
+import { gridDestination, playerShortcut, frameAccessibleName, sheetKeyboardCommand } from "@/lib/player-keyboard";
 import { SheetExpansion } from "@/components/SheetExpansion";
 import { useCaptionCues } from "@/hooks/use-caption-cues";
-import { PlayerTooltip } from "@/components/PlayerTooltip";
 import { captionPlaybackSource, captionTrackAllowed, LOCAL_CAPTION_ID } from "@/lib/player-captions";
 import { useLocalCaptions } from "@/hooks/use-local-captions";
 import { useMenuSurface } from "@/hooks/use-menu-surface";
 import { useSheetSeek } from "@/hooks/use-sheet-seek";
+import { tileSeekTime } from "@/lib/sheet-seek";
 import { SheetSeekPreview } from "@/components/SheetSeekPreview";
 import { useVideoTap } from "@/hooks/use-video-tap";
 import { usePlayerWidth } from "@/hooks/use-player-width";
 import { SaveSheetButton } from "@/components/SaveSheetButton";
 import { useStartTime } from "@/hooks/use-start-time";
 import { exportTitle } from "@/lib/sheet-export";
-import { PlayIcon, PauseIcon, FullscreenIcon, GridIcon, CloseIcon } from "@/components/PlayerIcons";
+import { PlayIcon, PauseIcon, FullscreenIcon, GridIcon, CloseIcon, CheckIcon } from "@/components/PlayerIcons";
 
 /**
  * THE VIDEO THIS PLAYER SHOWS.
@@ -147,6 +149,8 @@ function Strip({ sheet, open, onOpen, idx, onSeek }: { sheet: Sheet; open: boole
   const scroller = useRef<HTMLDivElement>(null);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const [tileW, setTileW] = useState(64);
+  const touchPress = useRef<{ x: number; y: number; id: number; moved: boolean } | null>(null);
+  const ignoreTouchClick = useRef(false);
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -168,6 +172,27 @@ function Strip({ sheet, open, onOpen, idx, onSeek }: { sheet: Sheet; open: boole
   return (
     <div className="ps-strip ps-rule-t flex items-stretch">
       <div ref={scroller} className="ps-strip-scroll ps-noscroll flex flex-1 cursor-zoom-in gap-1 overflow-x-auto p-2"
+        onPointerDown={event => {
+          if (event.pointerType !== "touch") return;
+          ignoreTouchClick.current = false;
+          touchPress.current = { x: event.clientX, y: event.clientY, id: event.pointerId, moved: false };
+        }}
+        onPointerMove={event => {
+          const press = touchPress.current;
+          if (!press || event.pointerId !== press.id) return;
+          const dx = event.clientX - press.x, dy = event.clientY - press.y;
+          if (sheetTouchIsTap(dx, dy)) return;
+          press.moved = true; ignoreTouchClick.current = true;
+          if (Math.abs(dy) >= Math.abs(dx)) { touchPress.current = null; return; }
+          const frame = refs.current.findIndex(el => {
+            const rect = el?.getBoundingClientRect();
+            return rect && event.clientX >= rect.left && event.clientX <= rect.right;
+          });
+          if (frame >= 0) onSeek(frame);
+        }}
+        onPointerUp={() => { touchPress.current = null; }}
+        onPointerCancel={() => { ignoreTouchClick.current = true; touchPress.current = null; }}
+        onClickCapture={event => { if (ignoreTouchClick.current) { event.stopPropagation(); ignoreTouchClick.current = false; } }}
         onClick={(e) => e.target === e.currentTarget && onOpen()}
       >
         {sheet.tiles.map((tile, i) => (
@@ -187,14 +212,16 @@ function Strip({ sheet, open, onOpen, idx, onSeek }: { sheet: Sheet; open: boole
           </Button>
         ))}
       </div>
-      <Button variant="player" className="ps-strip-open" aria-label="Contact sheet" aria-expanded={open} onClick={onOpen}>
+      <Button variant="player" className="ps-strip-open" aria-label={open ? "Close contact sheet" : "Open contact sheet"} aria-expanded={open} onClick={onOpen}>
         <GridIcon /><span>Contact sheet</span>
       </Button>
     </div>
   );
 }
 
-function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, onHold, onCancelHold, sheetRef, dragging }: {
+function ContactSheet({ sheet, title, playbackId, open, focusRequest, playing, onClose, idx, onSeek, onHold, onCancelHold, sheetRef, dragging }: {
+  focusRequest: number;
+  playing: boolean;
   title: string;
   playbackId: string;
   open: boolean;
@@ -203,11 +230,15 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
   sheetRef: RefObject<HTMLDivElement | null>; dragging: RefObject<boolean>;
 }) {
   const gridId = useId();
+  const [picks, setPicks] = useState<Set<number>>(new Set());
+  const [selecting, setSelecting] = useState(false);
+  const mark = (index: number) => setPicks(current => togglePick(current, index));
   const [connector, setConnector] = useState<{ x: number; y: number; endX: number; endY: number } | null>(null);
   const lastPassed = useRef<number | null>(null);
   const pointerId = useRef<number | null>(null);
   const pressPosition = useRef({ x: 0, y: 0 });
-  const gesture = useRef<"pending" | "scrub" | "scroll">("pending");
+  const touchPress = useRef<{ x: number; y: number; id: number } | null>(null);
+  const ignoreTouchClick = useRef(false);
   // Tile rects are measured once per drag (and after scrolling), never per move.
   const frameCache = useRef<{ frames: { index: number; rect: DOMRect }[]; host: DOMRect } | null>(null);
   const measureFrames = () => {
@@ -215,7 +246,7 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
     if (!host) return null;
     frameCache.current = {
       host: host.getBoundingClientRect(),
-      frames: Array.from(host.querySelectorAll<HTMLElement>("[data-frame]")).map((tile) => ({
+      frames: Array.from(host.querySelectorAll<HTMLElement>(".ps-sheet-tile[data-frame]")).map((tile) => ({
         index: Number(tile.dataset["frame"]), rect: (tile.querySelector(".ps-tile") ?? tile).getBoundingClientRect(),
       })),
     };
@@ -230,7 +261,6 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
     if (hit !== undefined && hit !== lastPassed.current) {
       lastPassed.current = hit;
       setFocused(hit);
-      gridRef.current?.focus({ preventScroll: true });
       onHold(hit);
     }
     const target = frames.find((frame) => frame.index === (lastPassed.current ?? idx));
@@ -238,7 +268,7 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
       endX: target.rect.left + target.rect.width / 2 - rect.left,
       endY: target.rect.top + target.rect.height / 2 - rect.top });
   };
-  const finishDrag = () => { dragging.current = false; pointerId.current = null; gesture.current = "pending"; frameCache.current = null; setConnector(null); };
+  const finishDrag = () => { dragging.current = false; pointerId.current = null; frameCache.current = null; setConnector(null); };
   /** Pointer left the sheet or the gesture was interrupted: no seek, restore playback's tile. */
   const cancelDrag = () => {
     if (pointerId.current === null) return;
@@ -257,14 +287,16 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [focused, setFocused] = useState(idx);
+  const focusFrame = (index: number) => { setFocused(index); gridRef.current?.setAttribute('data-pointer-focus', ''); gridRef.current?.focus({ preventScroll: true }); };
+  const sheetScroll = useSheetScroll(gridRef, idx, columns, open, playing);
 
   useEffect(() => {
     const el = gridRef.current;
     if (!el) return;
     const measure = () => {
       // Grid width is the player's width minus sheet padding and scrollbar.
-      const w = el.getBoundingClientRect().width;
-      const playerWidth = el.closest(".ps-player")?.getBoundingClientRect().width ?? w;
+      const w = el.clientWidth;
+      const playerWidth = el.closest<HTMLElement>(".ps-player")?.clientWidth ?? w;
       setColumns(sheetColumns(w, 0, playerWidth));
       setTileW(contactSheetTileWidth(w, playerWidth));
     };
@@ -279,75 +311,85 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
 
   useEffect(() => {
     if (!open) return;
-    const tile = refs.current[idx];
-    const scroller = gridRef.current?.parentElement;
-    if (tile && scroller) scroller.scrollTop = tile.offsetTop - scroller.offsetTop - scroller.clientHeight / 2 + tile.clientHeight / 2;
     setFocused(idx);
-    gridRef.current?.focus({ preventScroll: true });
     // only on open
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  useEffect(() => {
+    if (open && focusRequest > 0) { setFocused(idx); sheetScroll.reveal(idx); gridRef.current?.removeAttribute('data-pointer-focus'); gridRef.current?.focus({ preventScroll: true }); }
+  }, [focusRequest, open]);
 
 
   return (
     <div ref={sheetRef} className="ps-contact ps-rule-t"
-      onPointerDown={(e) => {
-        if (e.button !== 0 || !(e.target instanceof Element) || !e.target.closest("[data-frame]")) return;
-        pointerId.current = e.pointerId;
-        dragging.current = false;
-        gesture.current = e.pointerType === "touch" ? "pending" : "scrub";
-        pressPosition.current = { x: e.clientX, y: e.clientY };
-        lastPassed.current = null;
-        if (e.pointerType !== "touch") {
-          e.preventDefault();
-          e.currentTarget.setPointerCapture(e.pointerId);
-          scrub(e.clientX, e.clientY);
+      onPointerDownCapture={event => {
+        if (event.pointerType !== "touch") return;
+        ignoreTouchClick.current = false;
+        touchPress.current = { x: event.clientX, y: event.clientY, id: event.pointerId };
+      }}
+      onPointerMoveCapture={event => {
+        const press = touchPress.current;
+        if (!press || event.pointerId !== press.id) return;
+        if (!sheetTouchIsTap(event.clientX - press.x, event.clientY - press.y)) {
+          ignoreTouchClick.current = true; sheetScroll.manual();
         }
       }}
+      onPointerUpCapture={event => {
+        const press = touchPress.current;
+        if (press && event.pointerId === press.id && !sheetTouchIsTap(event.clientX - press.x, event.clientY - press.y)) ignoreTouchClick.current = true;
+        touchPress.current = null;
+      }}
+      onClickCapture={event => { if (ignoreTouchClick.current) { event.stopPropagation(); ignoreTouchClick.current = false; } }}
+      onPointerDown={(e) => {
+        if (e.pointerType !== "mouse" || e.button !== 0 || !(e.target instanceof Element) || e.target.closest("[data-pick-control]") || !e.target.closest(".ps-sheet-tile[data-frame]")) return;
+        pointerId.current = e.pointerId;
+        dragging.current = false;
+        pressPosition.current = { x: e.clientX, y: e.clientY };
+        lastPassed.current = null;
+        scrub(e.clientX, e.clientY);
+      }}
       onPointerMove={(e) => {
-        if (pointerId.current !== e.pointerId) return;
-        if (gesture.current === "pending") {
-          gesture.current = sheetGestureDirection(e.clientX - pressPosition.current.x, e.clientY - pressPosition.current.y);
-          if (gesture.current === "pending") return;
-          if (gesture.current === "scroll") { cancelDrag(); return; }
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }
-        e.preventDefault();
+        if (e.pointerType !== "mouse" || pointerId.current !== e.pointerId) return;
         if (outsideSheet(e.clientX, e.clientY)) { cancelDrag(); return; }
         if (Math.hypot(e.clientX - pressPosition.current.x, e.clientY - pressPosition.current.y) > 3) dragging.current = true;
         scrub(e.clientX, e.clientY);
       }}
       onPointerUp={(e) => {
-        if (pointerId.current !== e.pointerId) return;
-        if (gesture.current === "pending") scrub(e.clientX, e.clientY);
+        if (e.pointerType !== "mouse" || pointerId.current !== e.pointerId) return;
         const hit = frameCache.current ? frameUnderPointer(frameCache.current.frames, e.clientX, e.clientY) : undefined;
         const target = hit ?? lastPassed.current;
         finishDrag();
         // One seek, on release, to the tile under the pointer.
-        if (target !== null && target !== undefined) onSeek(target);
-      }} onPointerCancel={cancelDrag} onScrollCapture={() => { if (frameCache.current) measureFrames(); }}
-      onLostPointerCapture={(e) => { if (e.target === e.currentTarget && pointerId.current !== null && gesture.current !== "pending") cancelDrag(); }}>
+        if (target !== null && target !== undefined) { focusFrame(target); onSeek(target); }
+      }} onPointerCancel={() => { ignoreTouchClick.current = true; touchPress.current = null; cancelDrag(); }} onPointerLeave={cancelDrag} onScrollCapture={() => { if (frameCache.current) measureFrames(); }}>
       {connector && <svg className="ps-drag-line" aria-hidden="true"><line x1={connector.x} y1={connector.y} x2={connector.endX} y2={connector.endY} /></svg>}
-      <div className="ps-rule-b flex flex-wrap items-center justify-between gap-x-3 px-3 py-2">
-        <span className="ps-dim">
-          Contact sheet · {sheet.tiles.length} frames
-        </span>
-        <div className="flex items-center gap-3">
-        <SaveSheetButton sheet={sheet} title={title} playbackId={playbackId} />
+      <div className="ps-rule-b ps-sheet-header px-3 py-1">
+        <div className="ps-sheet-count"><span className="ps-dim" aria-live="polite" aria-label={picks.size ? `${picks.size} frames selected` : `${sheet.tiles.length} frames`}>{picks.size ? `${picks.size} selected` : `Contact sheet · ${sheet.tiles.length} frames`}</span>
+          {sheetScroll.touch && <span className="ps-sheet-page ps-mono ps-dim" aria-live="polite" aria-label={`Page ${sheetScroll.page} of ${sheetScroll.pages}`}>{sheetScroll.page} / {sheetScroll.pages}</span>}
+          {picks.size > 0 && <Button variant="player" className="ps-clear-picks" onClick={() => setPicks(new Set())}>Clear</Button>}
+        </div>
+        <div className="ps-sheet-actions">
+        <Button variant="player" className="ps-select-toggle" aria-label="Select frames" aria-pressed={selecting} onClick={() => setSelecting(value => !value)}>Select</Button>
+        <SaveSheetButton sheet={sheet} title={title} playbackId={playbackId} picks={picks} />
         <Button ref={closeRef} variant="player" type="button" aria-label="Close contact sheet" onClick={onClose}>
           <CloseIcon />
           <span>Close</span>
         </Button>
         </div>
       </div>
-      <div className="ps-contact-scroll overflow-y-auto p-3">
+      <div className="ps-contact-window">
+      <div ref={sheetScroll.scroller} className="ps-contact-scroll px-3" data-above={sheetScroll.edges.above ? "" : undefined} data-below={sheetScroll.edges.below ? "" : undefined} onPointerDown={(event) => { if (event.target === event.currentTarget) sheetScroll.manual(); }}>
         <div ref={gridRef} className="ps-frame-rows" role="grid" tabIndex={0} aria-activedescendant={`${gridId}-frame-${focused}`} aria-label="Contact sheet frames" aria-rowcount={Math.ceil(sheet.tiles.length / columns)} aria-colcount={columns}
+          onBlur={event => event.currentTarget.removeAttribute('data-pointer-focus')}
           onKeyDown={(event) => {
-            if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " "].includes(event.key)) return;
+            event.currentTarget.removeAttribute('data-pointer-focus');
+            const command = sheetKeyboardCommand(event.key);
+            if (!command) return;
             event.preventDefault(); event.stopPropagation();
-            if (event.key === "Enter" || event.key === " ") { onSeek(focused); onClose(); return; }
+            if (command === "mark") { mark(focused); return; }
+            if (command === "seek") { onSeek(focused); return; }
             const next = gridDestination(focused, event.key, columns, sheet.tiles.length, getComputedStyle(event.currentTarget).direction === "rtl");
-            setFocused(next); onSeek(next); refs.current[next]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+            setFocused(next); sheetScroll.manual(); sheetScroll.reveal(next);
           }}>
           {Array.from({ length: Math.ceil(sheet.tiles.length / columns) }, (_, row) => (
             <div key={row} className="ps-frame-row">
@@ -355,7 +397,7 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
           {sheet.tiles.slice(row * columns, (row + 1) * columns).map((tile, col) => {
             const i = row * columns + col;
             return (
-            <div role="gridcell" id={`${gridId}-frame-${i}`} aria-label={frameAccessibleName(i, tile.start)} aria-current={i === idx ? "true" : undefined} aria-colindex={col + 1} key={i}>
+            <div role="gridcell" className="ps-sheet-cell" id={`${gridId}-frame-${i}`} aria-label={`${frameAccessibleName(i, tile.start)}, ${picks.has(i) ? "selected" : "not selected"}`} aria-selected={picks.has(i)} aria-current={i === idx ? "true" : undefined} aria-colindex={col + 1} key={i}>
             <Button variant="player"
               key={i}
               ref={(el) => {
@@ -368,7 +410,8 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
               data-frame={i}
               tabIndex={-1}
               data-focused={focused === i ? "" : undefined}
-              onClick={(e) => { if (e.detail === 0) onSeek(i); }}
+              data-marked={picks.has(i) ? "" : undefined}
+              onClick={(e) => { focusFrame(i); if (selecting && window.matchMedia("(pointer: coarse)").matches) mark(i); else if (e.detail === 0 || window.matchMedia("(pointer: coarse)").matches) onSeek(i); }}
               className="ps-sheet-tile text-left"
             >
               <span className="ps-tile block">
@@ -379,12 +422,16 @@ function ContactSheet({ sheet, title, playbackId, open, onClose, idx, onSeek, on
                 <span className="ps-frame-number">{String(i + 1).padStart(2, "0")}</span>
                 <span className="ps-frame-time">{fmtTile(tile.start, sheet.duration)}</span>
               </span>
+            </Button>
+            <Button variant="player" className="ps-pick-control" data-pick-control data-marked={picks.has(i) ? "" : undefined} role="checkbox" aria-checked={picks.has(i)} aria-label={`Mark frame ${i + 1}`} tabIndex={-1} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); mark(i); }}>
+              {picks.has(i) && <CheckIcon />}
             </Button></div>
           ); })}
               </div>
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -413,7 +460,7 @@ function CaptionBox({ text, controlsVisible }: { text: string; controlsVisible: 
   return <div ref={box} className="ps-captions" data-reduced={reduced ? "" : undefined} data-controls-visible={controlsVisible ? "" : undefined} aria-live="off"><span>{text}</span></div>;
 }
 
-function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, onFrameCount, muted, loop, autoPlay, initialSheetOpen, posterTime = 6 }: { posterTime?: number | undefined; playbackId: string; title: string; startTime?: number | undefined; aspectRatio?: number | undefined; captionsUrl?: string | undefined; theme?: PlayerTheme | undefined; onFrameCount?: ((count: number) => void) | undefined; muted: boolean; loop: boolean; autoPlay: boolean; initialSheetOpen: boolean }) {
+function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, frame, onFrameCount, muted, loop, autoPlay, initialSheetOpen, posterTime = 6 }: { frame: "glass" | "none"; posterTime?: number | undefined; playbackId: string; title: string; startTime?: number | undefined; aspectRatio?: number | undefined; captionsUrl?: string | undefined; theme?: PlayerTheme | undefined; onFrameCount?: ((count: number) => void) | undefined; muted: boolean; loop: boolean; autoPlay: boolean; initialSheetOpen: boolean }) {
   const { sheet, ratio: storyboardRatio } = useStoryboard(playbackId);
   useEffect(() => { onFrameCount?.(sheet?.tiles.length ?? 0); }, [sheet, onFrameCount]);
   const store = usePlayer();
@@ -422,17 +469,19 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
   const transition = useSheetTransition(initialSheetOpen);
   const { open, openSheet, closeSheet, playerRef: containerRef, videoRef: videoWrap, sheetRef, dragging } = transition;
   const playerWidth = usePlayerWidth(containerRef);
-  const narrow = playerWidth > 0 && playerWidth < 640;
+  const narrow = playerWidth > 0 && playerWidth <= 640;
   const compact = playerWidth > 0 && playerWidth < 380;
   useStartTime(videoWrap, startTime);
-  const { preview, seek, hold, cancelHold } = useSheetSeek(videoWrap);
-  const active = preview?.index ?? playbackFrame;
+  const { preview, chosenFrame, seek, hold, cancelHold } = useSheetSeek(videoWrap, playbackFrame);
+  const active = preview?.index ?? chosenFrame ?? playbackFrame;
   const { text: captionText, selectedId: selectedCaptionId, select: selectCaption } = useCaptionCues(videoWrap, captionsUrl);
   useLocalCaptions(videoWrap, captionsUrl);
   const seekFrame = (index: number) => {
     const tile = sheet?.tiles[index];
     if (!tile) return;
-    seek(index, tile.start);
+    if (!sheet) return;
+    const mediaDuration = videoWrap.current?.querySelector("video")?.duration;
+    seek(index, tileSeekTime(sheet.tiles, index, Number.isFinite(mediaDuration) ? Math.min(mediaDuration ?? sheet.duration, sheet.duration) : sheet.duration));
   };
   const holdFrame = (index: number) => { const tile = sheet?.tiles[index]; if (tile) hold(index, tile.start); };
   const paused = usePlayer((s) => s.paused);
@@ -461,7 +510,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
   }, reveal, () => { void (store.state.isFullscreen ? store.exitFullscreen() : store.requestFullscreen()).catch(() => {}); });
   const [metadataRatio, setMetadataRatio] = useState<number | null>(null);
   const ratio = resolveAspectRatio(aspectRatio, storyboardRatio, metadataRatio);
-  const [heightLimit, setHeightLimit] = useState("70vh");
+  const [heightLimit, setHeightLimit] = useState("70svh");
   const [widthLimit, setWidthLimit] = useState<string | null>(null);
   const [thickness, setThickness] = useState<number | null>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
@@ -487,36 +536,11 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
   const helpRef = useRef<HTMLDivElement>(null);
   const helpTrigger = useRef<HTMLButtonElement>(null);
   const helpMenu = useMenuSurface({ open: helpOpen, setOpen: setHelpOpen, menu: helpRef, trigger: helpTrigger, host: containerRef });
-  useLayoutEffect(() => {
-    const player = containerRef.current;
-    const popup = helpRef.current;
-    if (!helpOpen || !player || !popup) return;
-    const position = () => {
-      const bounds = player.getBoundingClientRect();
-      const trigger = helpTrigger.current;
-      // The hardware-keyboard shortcut remains available when KEYS is hidden.
-      const anchor = trigger?.getClientRects().length ? trigger.getBoundingClientRect() : videoWrap.current?.getBoundingClientRect();
-      if (!anchor) return;
-      popup.style.width = `${Math.min(480, player.clientWidth)}px`;
-      popup.toggleAttribute("data-narrow", player.clientWidth < 480);
-      const height = popup.scrollHeight;
-      const layout = playerMenuLayout({ left: anchor.left - bounds.left - player.clientLeft, right: anchor.right - bounds.left - player.clientLeft, top: anchor.top - bounds.top - player.clientTop, bottom: anchor.bottom - bounds.top - player.clientTop }, { width: player.clientWidth, height: player.clientHeight }, height, popup.offsetWidth);
-      popup.style.left = `${layout.left}px`;
-      popup.style.top = `${layout.top}px`;
-      popup.style.maxHeight = `${layout.maxHeight}px`;
-      popup.dataset["side"] = layout.side;
-    };
-    position();
-    popup.focus({ preventScroll: true });
-    const observer = new ResizeObserver(position);
-    observer.observe(player);
-    if (helpTrigger.current) observer.observe(helpTrigger.current);
-    window.addEventListener("resize", position);
-    window.addEventListener("scroll", position, true);
-    return () => { observer.disconnect(); window.removeEventListener("resize", position); window.removeEventListener("scroll", position, true); };
-  }, [helpOpen]);
-  const showSheet = () => {
+  const [sheetFocusRequest, setSheetFocusRequest] = useState(0);
+  const showSheet = (keyboard = false) => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : containerRef.current;
+    if (keyboard) setSheetFocusRequest(value => value + 1);
+    else setSheetFocusRequest(0);
     openSheet();
   };
   const hideSheet = () => { void closeSheet(); };
@@ -545,7 +569,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
     if (!row) return;
     const fit = () => {
       // Try spacing first, then type size; never remove a label.
-      for (const density of ["normal", "tight", "small", "nano"]) {
+      for (const density of ["normal", "tight", "small", "nano", "flush"]) {
         row.dataset["density"] = density;
         const styles = getComputedStyle(row);
         const items = Array.from(row.children).filter((item) => !item.classList.contains("flex-1"));
@@ -578,13 +602,14 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
 
   useLayoutEffect(() => {
     const el = videoWrap.current;
-    const frame = frameRef.current;
-    const host = frame?.parentElement;
-    if (!el || !frame || !host) return;
+    const frameElement = frameRef.current;
+    const host = frameElement?.parentElement;
+    if (!el || !frameElement || !host) return;
     const read = () => {
       const v = el.querySelector("video");
       if (!v) return;
-      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      // Small viewport height stays fixed when mobile browser toolbars collapse.
+      const viewportHeight = frameElement.querySelector<HTMLElement>(".ps-viewport-height")?.clientHeight || window.innerHeight;
       const fullscreen = document.fullscreenElement === containerRef.current;
       const hostStyles = getComputedStyle(host);
       const containerWidth = fullscreen ? window.innerWidth : host.clientWidth - (parseFloat(hostStyles.paddingLeft) || 0) - (parseFloat(hostStyles.paddingRight) || 0);
@@ -597,7 +622,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
       const resolved = metrics.ratio ?? ratio;
       setHeightLimit(`${metrics.heightLimit}px`);
       // Scale the perimeter from content width, including it in the container bound.
-      const geometry = resolved === null ? null : playerFrameMetrics(resolved, metrics.heightLimit, containerWidth);
+      const geometry = resolved === null ? null : playerFrameMetrics(resolved, metrics.heightLimit, containerWidth, frame, window.innerWidth);
       setWidthLimit(geometry ? `${geometry.width}px` : null);
       setThickness(geometry?.thickness ?? null);
     };
@@ -617,14 +642,18 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
       window.visualViewport?.removeEventListener("resize", read);
       document.removeEventListener("fullscreenchange", read);
     };
-  }, [playbackId, ratio]);
+  }, [playbackId, ratio, frame]);
 
   return (
-    <div ref={frameRef} className="ps-glass-frame" data-ratio-pending={ratio === null ? "" : undefined} data-theme={theme ?? detectedTheme} style={{ "--player-width-limit": widthLimit ?? (ratio === null ? "0px" : `calc(70vh * ${ratio})`), "--frame-thickness": thickness === null ? undefined : `${thickness}px` } as React.CSSProperties}>
+    <div ref={frameRef} className="ps-glass-frame" data-frame={frame === "glass" && (thickness ?? 0) > 0 ? "glass" : "none"} data-ratio-pending={ratio === null ? "" : undefined} data-theme={theme ?? detectedTheme} style={{ "--player-width-limit": widthLimit ?? (ratio === null ? "0px" : `calc(70svh * ${ratio})`), "--frame-thickness": thickness === null ? undefined : `${thickness}px` } as React.CSSProperties}>
+    <span className="ps-viewport-height" aria-hidden="true" />
     <span className="ps-glass-inner-layer" aria-hidden="true" />
     <span className="ps-glass-lens" aria-hidden="true" />
     <Container ref={containerRef} data-narrow={narrow ? "" : undefined} data-compact={compact ? "" : undefined} data-theme={theme ?? detectedTheme} data-chrome-hidden={hidden ? "" : undefined} data-controls-idle={controlsIdle ? "" : undefined} data-sheet-open={open ? "" : undefined}
       tabIndex={0} role="region" aria-label="Contact sheet video player" aria-description="Press question mark for keyboard shortcuts."
+      onPointerDownCapture={(event) => {
+        if (event.target instanceof Element && event.target.closest('.ps-video, .ps-controls, .ps-slider') && sheetRef.current?.contains(document.activeElement)) containerRef.current?.focus({ preventScroll: true });
+      }}
       onPointerMove={(event) => {
         reveal();
         const over = event.target instanceof Element && !!event.target.closest(".ps-controls, .ps-slider");
@@ -660,15 +689,15 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
         const state = store.state;
         switch (shortcut.action) {
           case "play": if (state.paused) void store.play().catch(() => {}); else store.pause(); break;
-          case "mute": store.setMuted(!state.muted); break;
+          case "mute": store.setMuted(!state.muted); containerRef.current?.dispatchEvent(new Event('player-keyboard-volume')); break;
           case "fullscreen": void (state.isFullscreen ? store.exitFullscreen() : store.requestFullscreen()).catch(() => {}); break;
           case "captions": if (captionsAvailable) {
             selectCaption(selectedCaptionId ? null : lastCaptionId.current ?? textTracks.find((track) => ["captions", "subtitles"].includes(track.kind) && captionTrackAllowed(track, captionsUrl))?.id ?? null);
           } break;
           case "seek": if (Number.isFinite(state.duration)) void store.seek(Math.max(0, Math.min(state.duration, state.currentTime + shortcut.value))); break;
           case "percent": if (Number.isFinite(state.duration)) void store.seek(state.duration * shortcut.value); break;
-          case "volume": store.setVolume(Math.max(0, Math.min(1, state.volume + shortcut.value))); break;
-          case "sheet": if (sheet) { if (open) hideSheet(); else showSheet(); } break;
+          case "volume": store.setVolume(Math.max(0, Math.min(1, state.volume + shortcut.value))); containerRef.current?.dispatchEvent(new Event('player-keyboard-volume')); break;
+          case "sheet": if (sheet) { if (open) hideSheet(); else showSheet(true); } break;
           case "close": if (helpOpen) helpMenu.close(); else if (menuOpen) containerRef.current?.dispatchEvent(new Event("sheet-close-menus")); else if (open) hideSheet(); break;
           case "help": helpMenu.toggle(); break;
         }
@@ -684,8 +713,8 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
           {captionsUrl && <track key={captionsUrl} id={LOCAL_CAPTION_ID} kind="captions" srcLang="en" label="English" src={captionsUrl} default />}
         </MuxVideo>
         {sheet && preview && <SheetSeekPreview sheet={sheet} index={preview.index} resolving={preview.resolving} loading={preview.loading} />}
-        {captionText && <CaptionBox text={captionText} controlsVisible={(!controlsIdle || interacting) && fullChromeVisible(hasPlayed, ended, interacting)} />}
-        <PlayButton render={(props) => <Button {...props} variant="player" className="ps-big-play"
+        {captionText && !menuOpen && !helpOpen && !volumeEngaged && <CaptionBox text={captionText} controlsVisible={(!controlsIdle || interacting) && fullChromeVisible(hasPlayed, ended, interacting)} />}
+        <PlayButton render={(props) => <Button {...props} title={undefined} variant="player" className="ps-big-play"
           data-visible={paused || ended ? "" : undefined} aria-label={ended ? "Replay video" : "Play video"}
           aria-hidden={!paused && !ended}
           tabIndex={paused || ended ? 0 : -1}>
@@ -715,11 +744,9 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
       <div ref={controlsRef} hidden={!fullChromeVisible(hasPlayed, ended, interacting)} className="ps-controls ps-rule-t flex items-center px-1 py-1">
         <PlayButton
           render={(props, state) => (
-            <PlayerTooltip label={state.paused ? "Play" : "Pause"} host={containerRef}>
-              <Button {...props} variant="player" className="ps-icon-control" aria-label={state.paused ? "Play" : "Pause"}>
+              <Button {...props} title={undefined} variant="player" className="ps-icon-control" aria-label={state.paused ? "Play" : "Pause"}>
                 {state.paused ? <PlayIcon /> : <PauseIcon />}
               </Button>
-            </PlayerTooltip>
           )}
         />
         {hasDuration ? <Time.Group className="ps-time ps-mono px-3 text-xs">
@@ -728,42 +755,35 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, o
         </Time.Group> : <span className="ps-time ps-mono" role="status">LOADING</span>}
         <span className="flex-1" />
         <VolumeControl host={containerRef} onEngaged={setVolumeEngaged} />
-        <TrackAndSpeedControls host={containerRef} onOpenChange={setMenuOpen} captionsUrl={captionsUrl} selectedCaptionId={selectedCaptionId} selectCaption={selectCaption} showSpeed={!compact} />
+        <TrackAndSpeedControls host={containerRef} onOpenChange={setMenuOpen} captionsUrl={captionsUrl} selectedCaptionId={selectedCaptionId} selectCaption={selectCaption} />
         <Button ref={helpTrigger} variant="player" className="ps-keys-trigger" aria-label="Keyboard shortcuts" aria-expanded={helpOpen} onClick={helpMenu.toggle}><span>Keys</span></Button>
         {/* Narrow player boxes open the sheet from the bar, regardless of viewport. */}
-        {sheet && narrow && (
-          <PlayerTooltip label={open ? "Close contact sheet" : "Open contact sheet"} host={containerRef}>
+        {sheet && (
             <Button variant="player" className="ps-icon-control" aria-label={open ? "Close contact sheet" : "Open contact sheet"} aria-expanded={open}
-              onClick={() => (open ? hideSheet() : showSheet())}>
+              onClick={(event) => (open ? hideSheet() : showSheet(event.detail === 0))}>
               <GridIcon />
             </Button>
-          </PlayerTooltip>
         )}
         <FullscreenButton
           render={(props, state) => (
-            <PlayerTooltip label={state.fullscreen ? "Exit fullscreen" : "Enter fullscreen"} host={containerRef}>
-              <Button {...props} variant="player" className="ps-icon-control" aria-label={state.fullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+              <Button {...props} title={undefined} variant="player" className="ps-icon-control" aria-label={state.fullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
                 <FullscreenIcon exit={state.fullscreen} />
               </Button>
-            </PlayerTooltip>
           )}
         />
       </div>
 
       {sheet && !narrow && <div className="ps-frames">
           <div className="ps-strip-chrome" data-collapsed={open ? "" : undefined} inert={open} aria-hidden={open}>
-            <div className="ps-strip-inner"><Strip sheet={sheet} open={open} idx={active} onSeek={seekFrame} onOpen={() => open ? hideSheet() : showSheet()} /></div>
+            <div className="ps-strip-inner"><Strip sheet={sheet} open={open} idx={active} onSeek={seekFrame} onOpen={() => open ? hideSheet() : showSheet(document.activeElement?.matches(":focus-visible") ?? false)} /></div>
           </div>
       </div>}
       </div>
       </div>
       </div>
 
-      {sheet && <SheetExpansion open={open}><ContactSheet sheet={sheet} title={title} playbackId={playbackId} open={open} idx={active} onSeek={seekFrame} onHold={holdFrame} onCancelHold={cancelHold} onClose={hideSheet} sheetRef={sheetRef} dragging={dragging} /></SheetExpansion>}
-      {helpOpen && <div ref={helpRef} tabIndex={-1} role="dialog" aria-modal={true} aria-label="Keyboard shortcuts" className="ps-menu-surface ps-keyboard-help">
-        <div className="ps-keys-header"><strong>KEYBOARD</strong><Button variant="player" className="ps-keys-close" aria-label="Close keyboard shortcuts" onClick={helpMenu.close}><CloseIcon /></Button></div>
-        <dl className="ps-keys-grid">{SHORTCUT_LIST.map(([key, action]) => <div className="ps-menu-row" key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>)}</dl>
-      </div>}
+      {sheet && <SheetExpansion open={open}><ContactSheet sheet={sheet} title={title} playbackId={playbackId} open={open} focusRequest={sheetFocusRequest} playing={!paused && !ended} idx={active} onSeek={seekFrame} onHold={holdFrame} onCancelHold={cancelHold} onClose={hideSheet} sheetRef={sheetRef} dragging={dragging} /></SheetExpansion>}
+      {helpOpen && <KeyboardHelp host={containerRef} video={videoWrap} trigger={helpTrigger} surface={helpRef} onClose={helpMenu.close} />}
     </Container>
     </div>
   );
@@ -776,6 +796,7 @@ export default function ProofSheetPlayer({
   aspectRatio,
   captionsUrl,
   theme,
+  frame = "none",
   onFrameCount,
   muted = false,
   loop = false,
@@ -794,6 +815,8 @@ export default function ProofSheetPlayer({
   captionsUrl?: string | undefined;
   /** Optional explicit theme; otherwise the nearest opaque host background decides. */
   theme?: PlayerTheme | undefined;
+  /** Optional outer glass perimeter; always omitted below 640px. */
+  frame?: "glass" | "none";
   onFrameCount?: ((count: number) => void) | undefined;
   /** Hosts opt into each playback behavior; all default to false. */
   muted?: boolean | undefined;
@@ -810,7 +833,7 @@ export default function ProofSheetPlayer({
   // Remount on a different video so the old one's playback state is dropped.
   return (
     <Player key={`${id}:${captionsUrl ?? ""}`}>
-      <Skin playbackId={id} title={exportTitle(title, id)} startTime={startTime} aspectRatio={aspectRatio} captionsUrl={captionsUrl} theme={theme} onFrameCount={onFrameCount} muted={muted} loop={loop} autoPlay={autoPlay} initialSheetOpen={initialSheetOpen} posterTime={posterTime} />
+      <Skin playbackId={id} title={exportTitle(title, id)} startTime={startTime} aspectRatio={aspectRatio} captionsUrl={captionsUrl} theme={theme} frame={frame} onFrameCount={onFrameCount} muted={muted} loop={loop} autoPlay={autoPlay} initialSheetOpen={initialSheetOpen} posterTime={posterTime} />
     </Player>
   );
 }

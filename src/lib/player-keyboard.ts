@@ -29,10 +29,20 @@ export function gridDestination(index: number, key: string, columns: number, cou
   return index;
 }
 
-export const SHORTCUT_LIST = [
-  ["SPACE", "Play / pause"], ["← →", "Seek 5s"],
+export const SHORTCUT_GROUPS = [{ label: "PLAYER", shortcuts: [
+  ["Space", "Play or pause"], ["← →", "Seek 5s"],
   ["↑ ↓", "Volume"], ["M", "Mute"],
   ["F", "Fullscreen"], ["C", "Captions"],
-  ["S", "Contact sheet"], ["Arrows", "Move between frames"],
-  ["Enter", "Seek to frame"], ["Esc", "Close"],
-] as const;
+  ["S", "Contact sheet"],
+] }, { label: "IN THE CONTACT SHEET", shortcuts: [
+  ["← → ↑ ↓", "Move between frames"], ["Enter", "Jump to frame"],
+  ["X", "Mark frame"], ["Esc", "Close"],
+] }] as const;
+export const SHORTCUT_LIST = SHORTCUT_GROUPS.flatMap<readonly [string, string]>(group => group.shortcuts);
+
+export function sheetKeyboardCommand(key: string) {
+  if (key.toLowerCase() === "x") return "mark";
+  if (key === "Enter" || key === " ") return "seek";
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(key)) return "move";
+  return undefined;
+}

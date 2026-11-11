@@ -1,5 +1,5 @@
 export function captionControlMode(trackCount: number) {
-  return trackCount === 0 ? "hidden" : trackCount === 1 ? "toggle" : "menu";
+  return trackCount === 0 ? "unavailable" : trackCount === 1 ? "toggle" : "menu";
 }
 
 export function toggledCaptionValue(value: string, trackValue: string) {

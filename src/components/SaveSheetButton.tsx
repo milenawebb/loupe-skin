@@ -4,7 +4,7 @@ import type { ExportSheet } from "@/lib/sheet-export";
 import { sourcePageUrl } from "@/lib/export-config";
 import { SaveIcon } from "@/components/PlayerIcons";
 
-export function SaveSheetButton({ sheet, title, playbackId }: { sheet: ExportSheet; title: string; playbackId: string }) {
+export function SaveSheetButton({ sheet, title, playbackId, picks = new Set<number>() }: { sheet: ExportSheet; title: string; playbackId: string; picks?: ReadonlySet<number> }) {
   const [status, setStatus] = useState<"ready" | "saving" | "failed">("ready");
   const busy = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -15,8 +15,13 @@ export function SaveSheetButton({ sheet, title, playbackId }: { sheet: ExportShe
     clearTimeout(timer.current);
     setStatus("saving");
     try {
-      const { saveSheetPdf } = await import("@/lib/sheet-pdf");
-      await saveSheetPdf(sheet, title, sourcePageUrl(window.location.pathname), playbackId);
+      if (picks.size) {
+        const { savePicksPdf } = await import("@/lib/sheet-picks-pdf");
+        await savePicksPdf(sheet, picks, title, sourcePageUrl(window.location.pathname), playbackId);
+      } else {
+        const { saveSheetPdf } = await import("@/lib/sheet-pdf");
+        await saveSheetPdf(sheet, title, sourcePageUrl(window.location.pathname), playbackId);
+      }
       setStatus("ready");
     } catch (error) {
       console.error("Loupe contact sheet export failed", error);
@@ -26,8 +31,8 @@ export function SaveSheetButton({ sheet, title, playbackId }: { sheet: ExportShe
       busy.current = false;
     }
   };
-  return <Button variant="player" type="button" aria-label="Save sheet" disabled={status === "saving"} onClick={() => void save()}>
+  return <Button variant="player" type="button" aria-label={picks.size ? "Save picks" : "Save sheet"} disabled={status === "saving"} onClick={() => void save()}>
     <SaveIcon />
-    <span role="status">{status === "saving" ? "SAVING" : status === "failed" ? "FAILED" : "SAVE SHEET"}</span>
+    <span role="status">{status === "saving" ? "SAVING" : status === "failed" ? "FAILED" : picks.size ? "SAVE PICKS" : "SAVE SHEET"}</span>
   </Button>;
 }
