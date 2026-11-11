@@ -3,14 +3,17 @@
 A Video.js v10 skin that turns a video into a contact sheet you can read at a glance, click into, drag across and save as a PDF.
 
 Live demo: [loupevideo.com](https://loupevideo.com)
+Docs: [loupevideo.com/docs](https://loupevideo.com/docs)
 
 ## What it adds
 
 Every player already builds a contact sheet. It is what powers the thumbnail that appears when you hover a seek bar. Most players show you one tile at a time and throw the rest away.
 
-Loupe shows all of them, as a filmstrip under the video and as a full sheet you can open beneath it. Click a frame to jump there, drag across frames to scrub, move through them with the keyboard, or save the whole sheet as a one page PDF with every frame linked back to its moment in the video.
+Loupe shows all of them, as a filmstrip under the video and as a full sheet you can open beneath it. The sheet shows three rows at a time, scrolls by whole rows and follows the frame that is playing. Click a frame to jump there, drag across frames to scrub, or move through them with the keyboard. The frame number and time appear on the frame that is playing and on the one you hover or focus.
 
-The player takes the shape of what it plays rather than boxing it, and reads light or dark from the page behind it.
+Then keep what you need. Save the whole sheet as a one page PDF, or mark the frames you want and save only those, shown larger. In both, every frame links back to its moment in the video.
+
+The player takes the shape of what it plays rather than boxing it, and reads light or dark from the page behind it. A liquid glass frame is optional.
 
 ## Requirements
 
@@ -22,7 +25,7 @@ The player takes the shape of what it plays rather than boxing it, and reads lig
 
 ## The storyboard
 
-**Without a storyboard there is no contact sheet.**
+Without a storyboard there is no contact sheet.
 
 Loupe does not extract frames itself. It builds the sheet from the storyboard the video host already generates: one sprite image of evenly spaced frames, plus a JSON file saying where each frame sits.
 
@@ -63,14 +66,13 @@ Copy these files:
 src/components/ProofSheetPlayer.tsx     the player and skin (default export)
 src/components/PlayerExtras.tsx         volume, speed and caption controls
 src/components/PlayerIcons.tsx          the drawn icon set
-src/components/PlayerTooltip.tsx        control tooltips
 src/components/SheetExpansion.tsx       contact sheet open and close
 src/components/SheetSeekPreview.tsx     seek preview image
 src/components/SaveSheetButton.tsx      PDF export control
 src/components/GlassRefraction.tsx      SVG filter for the glass frame
 src/components/ui/button.tsx            the "player" button variant
 src/hooks/use-*.ts                      chrome, seek, menu, caption and width hooks
-src/lib/*.ts                            layout, theme, keyboard and export logic
+src/lib/*.ts                            layout, theme, keyboard, picks and export logic
 src/styles.css                          every .ps-* rule and the theme variables
 public/displacement-map.png             glass refraction map, frame
 public/displacement-map-panel.png       glass refraction map, menus
@@ -79,8 +81,8 @@ public/loupe-logo.png                   used by the PDF renderer
 
 Then add the dependencies:
 
-```bash
-npm install @videojs/react@10.3.0 @videojs/mux-video@10.3.0 @radix-ui/react-tooltip clsx tailwind-merge
+```
+npm install @videojs/react@10.3.0 @videojs/mux-video@10.3.0 jspdf clsx tailwind-merge
 ```
 
 Tailwind must scan every copied file. Mount `GlassRefraction` once per page, not once per player. The two displacement maps are referenced by root URL, so either preserve those paths or update the references in `GlassRefraction.tsx` and `sheet-export.ts`.
@@ -112,16 +114,17 @@ The player is client only. Under SSR, render it inside whatever browser-only bou
 
 ## Options
 
-Every prop is optional.
+Every prop is optional, though the player needs a `playbackId` to render.
 
 | Prop | Type | Default | What it does |
 |---|---|---|---|
 | `playbackId` | `string` | none | Mux playback ID. Without one the player does not render. |
-| `title` | `string` | the playback ID | Used for the PDF header, the PDF document title and the export filename. |
+| `title` | `string` | the playback ID | Used for the PDF header, the PDF document title and the export filename. Picks are saved with `-picks` added to the name. |
 | `aspectRatio` | `number` | none | Width / height to reserve before anything loads. The storyboard ratio supersedes it once available, snapped to a standard ratio within 1%, then confirmed by the video's own metadata. Without it the player stays hidden until a shape is known. |
 | `startTime` | `number` | none | Initial seconds, applied once a finite positive duration is available. Values above the duration are capped. |
 | `captionsUrl` | `string` | none | English WebVTT override. Unset keeps the source's own tracks. |
 | `theme` | `"light" \| "dark"` | detected | Forces the theme. Unset, it is read from the page behind the player. |
+| `frame` | `"glass" \| "none"` | `"none"` | Shows the liquid glass frame around the player, or no frame. The band is thinner on small screens. |
 | `muted` | `boolean` | `false` | Start muted. |
 | `loop` | `boolean` | `false` | Loop playback. |
 | `autoPlay` | `boolean` | `false` | Browsers generally only allow this when muted. |
@@ -129,7 +132,7 @@ Every prop is optional.
 | `posterTime` | `number` | `6` | Seconds into the video for the poster frame, from Mux's thumbnail service. |
 | `onFrameCount` | `(count: number) => void` | none | Called with the loaded storyboard tile count, or 0 while unavailable. |
 
-Some values are implementation constants rather than props: the Mux storyboard and thumbnail URLs, the 70vh height cap, the speed list (0.5 to 2), the five second seek step, the 1800ms idle delay before the chrome hides, and the 640px and 380px compact layout widths.
+Some values are implementation constants rather than props: the Mux storyboard and thumbnail URLs, the 70vh height cap, the three visible sheet rows, the speed list (0.5 to 2), the five second seek step, the 1800ms idle delay before the chrome hides, and the 640px and 380px compact layout widths.
 
 ## Theming
 
@@ -156,29 +159,52 @@ The variables are declared on `.ps-player` and `.ps-player[data-theme="light"]`,
 
 `--sheet` aliases `--panel`. `--focus-light` is `#FFFFFF` and `--focus-dark` is `#000000` in both themes. The glass frame has its own `--glass-*` variables on `.ps-glass-frame`, with light overrides on `.ps-glass-frame[data-theme="light"]`.
 
+The player lifts off the page with a soft shadow on light backgrounds and a fine edge light on dark ones.
+
 ## Keyboard
 
-Shortcuts work while focus is inside the player.
+Shortcuts work while focus is inside the player. The arrow keys do one job in the player and another inside the contact sheet.
 
-| | | | |
-|---|---|---|---|
-| `Space` | Play / pause | `← →` | Seek 5s |
-| `↑ ↓` | Volume | `M` | Mute |
-| `F` | Fullscreen | `C` | Captions |
-| `S` | Contact sheet | `Arrows` | Move between frames |
-| `Enter` | Seek to frame | `Esc` | Close |
+**Player**
 
-Also supported: `K` play/pause, `J` and `L` seek 10 seconds, `0` to `9` seek 0 to 90%, `Home` and `End` for start and end, and `?` to toggle the keyboard panel.
+| Key | Action |
+|---|---|
+| Space | Play / pause |
+| ← → | Seek 5s |
+| ↑ ↓ | Volume |
+| M | Mute |
+| F | Fullscreen |
+| C | Captions |
+| S | Contact sheet |
+
+**In the contact sheet**
+
+| Key | Action |
+|---|---|
+| ← → ↑ ↓ | Move between frames |
+| Enter | Jump to frame |
+| X | Mark frame |
+| Esc | Close |
+
+Click a frame or press S to move into the contact sheet. Esc, or a click on the video, moves back out.
+
+Also supported: K play/pause, J and L seek 10 seconds, 0 to 9 seek 0 to 90%, Home and End for start and end, and ? to toggle the keyboard panel.
 
 Editable fields and surfaces with their own keyboard handling are excluded. Alt, Ctrl and Meta combinations are ignored. Space on a focused button activates that button rather than toggling playback.
 
+Changing the volume or muting from the keyboard briefly shows the volume slider.
+
+The KEYS button is hidden on touch-only devices.
+
 ## Accessibility
 
-**Contact sheet.** The frame grid is a single tab stop using `aria-activedescendant`. Arrow keys move the active descendant and seek immediately. Enter seeks to the focused frame and closes the sheet. Frame names include the number and timestamp, and the current frame is marked `aria-current`. The sheet header's controls remain separate tab stops.
+**Contact sheet.** **Contact sheet.** The frame grid is a single tab stop using `aria-activedescendant`. Clicking a frame or pressing S moves focus into it. Arrow keys move between frames, Enter jumps the video to the focused frame, and X marks or unmarks it. The focused frame shows its number and time. Frame names include the number and timestamp, the current frame is marked `aria-current`, and each frame announces whether it is selected. The number of selected frames is announced when it changes. The sheet header's controls remain separate tab stops.
 
-**Touch targets.** Control buttons and menu rows are at least 44 by 44 pixels. Filmstrip tiles are at least 44 pixels in both directions. The seek interaction is 44 pixels tall around a 3 pixel track with a 10 pixel square handle.
+**Touch targets.** Control buttons are 44 pixels tall, and 44 pixels wide or 32 pixels wide on compact players. Menu rows are 40 pixels tall. On small players, speed and captions open as a row of chips 44 pixels tall. The seek interaction is 44 pixels tall around a 3 pixel track with a 10 pixel square handle.
 
-**Focus.** Every control has a visible focus outline. Menus trap Tab while open and return focus to the control that opened them.
+**Focus.** Every control has a visible focus outline, shown for keyboard use only. The player itself never shows an outline. Menus trap Tab while open and return focus to the control that opened them. The sheet does not take focus when it opens on page load.
+
+**Captions.** White text on a dark translucent box in both themes, placed above the control bar. With one caption track the CC button is a toggle. With several it opens a menu.
 
 **Reduced motion.** Under `prefers-reduced-motion`, the sheet expansion, the chrome fade, the seek preview and button transitions are all switched off. The player remains fully functional.
 
@@ -186,8 +212,14 @@ Editable fields and surfaces with their own keyboard handling are excluded. Alt,
 
 **Right to left.** Under `dir="rtl"`, left and right arrows swap for seeking and sheet navigation, and pointer seeking follows reading direction.
 
-**Contrast.** Control bar text and icons measure 15.7:1 in the dark theme and 17.4:1 in the light theme. The glass frame samples whatever sits behind it, so contrast over an arbitrary host page depends on that background.
+**Contrast.** Control bar text and icons measure 15.7:1 in the dark theme and 17.4:1 in the light theme. Secondary text measures 5.4:1 dark and 5.3:1 light. The glass frame samples whatever sits behind it, so contrast over an arbitrary host page depends on that background.
 
-## Licence
+## Credits
 
-Apache License 2.0. Copyright 2026 Milena Webb. Full text in [LICENSE](LICENSE).
+Demo footage: Europa Clipper mission trailer, NASA/JPL-Caltech. Cinematic and vertical clips created by Milena Webb with Higgsfield.
+
+Built for the Video.js v10 Skins Design Challenge.
+
+## License
+
+Apache License 2.0. Copyright 2026 Milena Webb. Full text in LICENSE.
