@@ -222,4 +222,4 @@ Built for the Video.js v10 Skins Design Challenge.
 
 ## License
 
-Apache License 2.0. Copyright 2026 Milena Webb. Full text in LICENSE.
+Apache License 2.0. Copyright 2026 Milena Webb. Full text in LICENSE. [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). Copyright 2026 Milena Webb. Full text in [LICENSE](LICENSE).
