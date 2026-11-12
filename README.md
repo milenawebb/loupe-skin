@@ -213,6 +213,10 @@ The KEYS button is hidden on touch-only devices.
 
 **Forced colors.** Under `forced-colors: active`, glass, blur and shadows are dropped in favour of system colours, and focus and the current frame use the system highlight.
 
+**Reduced transparency.** Under `prefers-reduced-transparency: reduce`, the glass frame, menus, panels and the caption box become solid surfaces. Nothing moves or changes size.
+
+**Increased contrast.** Under `prefers-contrast: more`, text goes to pure white or pure black, hairlines strengthen, focus rings thicken to 3px and every surface becomes solid.
+
 **Right to left.** Under `dir="rtl"`, left and right arrows swap for seeking and sheet navigation, and pointer seeking follows reading direction.
 
 **Contrast.** Control bar text and icons measure 15.7:1 in the dark theme and 17.4:1 in the light theme. Secondary text measures 5.4:1 dark and 5.3:1 light. The glass frame samples whatever sits behind it, so contrast over an arbitrary host page depends on that background.
