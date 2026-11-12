@@ -414,7 +414,7 @@ function ContactSheet({ sheet, title, playbackId, open, focusRequest, playing, o
               onClick={(e) => { focusFrame(i); if (selecting && window.matchMedia("(pointer: coarse)").matches) mark(i); else if (e.detail === 0 || window.matchMedia("(pointer: coarse)").matches) onSeek(i); }}
               className="ps-sheet-tile text-left"
             >
-              <span className="ps-tile block">
+              <span className="ps-tile block" style={{ "--sheet-tile-column": col } as React.CSSProperties}>
                 <TileFace sheet={sheet} tile={tile} width={tileW} />
                 <FocusFrame />
               </span>

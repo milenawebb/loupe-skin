@@ -427,6 +427,16 @@
 @media (hover: hover) and (pointer: fine) { .ps-sheet-tile:hover > .ps-tile { filter: brightness(1); }
 }
 .ps-sheet-tile > .ps-tile::after { display: none; }
+/* Loaded storyboard tiles develop once per opening; the filmstrip is untouched.
+   Backwards fill covers the delay, then releases opacity/filter to resting rules. */
+@keyframes ps-sheet-develop {
+  from { opacity: 0; filter: brightness(0.3); }
+}
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .ps-player[data-sheet-open] .ps-sheet-tile > .ps-tile {
+    animation: ps-sheet-develop 420ms ease-out calc(220ms + min(calc(var(--sheet-tile-column, 0) * 55ms), 440ms)) backwards;
+  }
+}
 .ps-player .ps-tile:focus-visible, .ps-player .ps-sheet-tile:focus-visible { outline: 2px solid var(--accent-hot); outline-offset: 2px; }
 
 /* The video stays full-size; only the sheet's normal-flow height changes. */
