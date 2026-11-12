@@ -1,5 +1,5 @@
 import { useLayoutEffect, useEffect, useRef, useState, type RefObject } from "react";
-import { SHEET_FOLLOW_PAUSE_MS, SHEET_WHEEL_IDLE_MS, threeRowHeight, clampSheetRow, sheetWheelCanMove, sheetWheelIntent } from "@/lib/sheet-scroll";
+import { SHEET_FOLLOW_PAUSE_MS, SHEET_WHEEL_IDLE_MS, SHEET_WHEEL_GESTURE_IDLE_MS, SHEET_WHEEL_ANIMATION_MS, accumulateSheetWheel, threeRowHeight, clampSheetRow, sheetWheelCanMove, sheetWheelIntent } from "@/lib/sheet-scroll";
 
 export function useSheetScroll(grid: RefObject<HTMLDivElement | null>, index: number, columns: number, open: boolean, playing: boolean) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -7,6 +7,7 @@ export function useSheetScroll(grid: RefObject<HTMLDivElement | null>, index: nu
   const firstRow = useRef(0);
   const pausedUntil = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const animation = useRef<number | null>(null);
   const [resume, setResume] = useState(0);
   const [edges, setEdges] = useState({ above: false, below: false });
   const [touch, setTouch] = useState(false);
@@ -21,12 +22,28 @@ export function useSheetScroll(grid: RefObject<HTMLDivElement | null>, index: nu
       setPages(Math.max(1, Math.ceil(rows.children.length / 3)));
     }
   };
-  const move = (row: number) => {
+  const move = (row: number, smooth = false) => {
     const rows = grid.current;
-    if (!rows) return;
+    const el = scroller.current;
+    if (!rows || !el) return;
     firstRow.current = clampSheetRow(row, rows.children.length);
-    if (scroller.current) scroller.current.scrollTop = firstRow.current * stride.current;
-    readEdges();
+    const top = firstRow.current * stride.current;
+    if (animation.current !== null) cancelAnimationFrame(animation.current);
+    animation.current = null;
+    if (smooth && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const from = el.scrollTop;
+      const started = performance.now();
+      const tick = (now: number) => {
+        const progress = Math.min(1, (now - started) / SHEET_WHEEL_ANIMATION_MS);
+        el.scrollTop = from + (top - from) * (1 - Math.pow(1 - progress, 3));
+        if (progress < 1) animation.current = requestAnimationFrame(tick);
+        else { animation.current = null; firstRow.current = clampSheetRow(top / stride.current, rows.children.length); readEdges(); }
+      };
+      animation.current = requestAnimationFrame(tick);
+    } else {
+      el.scrollTop = top;
+      readEdges();
+    }
   };
   const reveal = (frame: number) => {
     const el = scroller.current;
@@ -40,7 +57,10 @@ export function useSheetScroll(grid: RefObject<HTMLDivElement | null>, index: nu
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setResume(n => n + 1), SHEET_FOLLOW_PAUSE_MS);
   };
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => () => {
+    clearTimeout(timer.current);
+    if (animation.current !== null) cancelAnimationFrame(animation.current);
+  }, []);
   useLayoutEffect(() => {
     const el = scroller.current;
     const rows = grid.current;
@@ -63,20 +83,34 @@ export function useSheetScroll(grid: RefObject<HTMLDivElement | null>, index: nu
     let lastOutsideWheel = -Infinity;
     let lastSheetWheel = -Infinity;
     let owned = false;
+    const wheelState = { total: 0, direction: 0, cooldownUntil: 0 };
     const leave = () => { owned = false; };
     const globalWheel = (event: WheelEvent) => {
       if (!(event.target instanceof Node) || !el.contains(event.target)) { lastOutsideWheel = performance.now(); owned = false; }
     };
     const wheel = (event: WheelEvent) => {
-      if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.deltaY === 0) return;
       const now = performance.now();
-      if (now - lastSheetWheel >= SHEET_WHEEL_IDLE_MS) owned = false;
+      const previousWheel = lastSheetWheel;
+      if (now - previousWheel >= SHEET_WHEEL_IDLE_MS) owned = false;
       const intent = sheetWheelIntent(now, lastOutsideWheel, owned);
       lastSheetWheel = now;
       readEdges();
-      if (!intent || !sheetWheelCanMove(firstRow.current, rows.children.length, event.deltaY)) return;
+      if (!intent) { wheelState.total = 0; return; }
+      if (!sheetWheelCanMove(firstRow.current, rows.children.length, event.deltaY)) {
+        wheelState.total = 0;
+        // Swallow only this gesture's trailing inertia; a later gesture chains to the page.
+        if (owned && now - previousWheel < SHEET_WHEEL_GESTURE_IDLE_MS) event.preventDefault();
+        return;
+      }
       owned = true;
-      event.preventDefault(); manual(); move(firstRow.current + Math.sign(event.deltaY));
+      event.preventDefault();
+      manual();
+      const step = accumulateSheetWheel(wheelState, event.deltaY, event.deltaMode, now, previousWheel);
+      wheelState.total = step.total;
+      wheelState.direction = step.direction;
+      wheelState.cooldownUntil = step.cooldownUntil;
+      if (step.move) move(firstRow.current + step.move, true);
     };
     // Native vertical touch scrolling, including inertia and boundary chaining.
     // No pointer cancellation, pointer capture or horizontal paging here.
@@ -89,6 +123,7 @@ export function useSheetScroll(grid: RefObject<HTMLDivElement | null>, index: nu
     el.addEventListener("scroll", scroll, { passive: true });
     measure();
     return () => {
+      if (animation.current !== null) cancelAnimationFrame(animation.current);
       observer.disconnect(); media.removeEventListener("change", mode);
       window.removeEventListener("wheel", globalWheel, true); el.removeEventListener("pointerleave", leave); el.removeEventListener("wheel", wheel);
       el.removeEventListener("pointerdown", down); el.removeEventListener("scroll", scroll);
