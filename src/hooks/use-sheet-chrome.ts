@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { TOUCH_PRIMARY_QUERY } from "@/lib/volume-panel";
 
 /** Keep the viewport still until a frame crosses either visible edge. */
 export function revealOffset(start: number, size: number, scroll: number, viewport: number) {
@@ -15,15 +14,6 @@ export const CHROME_IDLE_MS = 1800;
 export const CHROME_FADE_OUT_MS = 200;
 
 export function useSheetChrome(paused: boolean, engaged: boolean, cleanRest = false) {
-  const [touchPrimary, setTouchPrimary] = useState(false);
-  useEffect(() => {
-    const media = window.matchMedia(TOUCH_PRIMARY_QUERY);
-    const update = () => setTouchPrimary(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-  const cleanAtRest = cleanRest && !touchPrimary;
   const [idle, setIdle] = useState(cleanRest);
   const [interacting, setInteracting] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -33,20 +23,20 @@ export function useSheetChrome(paused: boolean, engaged: boolean, cleanRest = fa
     clearTimer();
     setIdle(false);
     setInteracting(true);
-    const hold = engaged || (paused && !cleanAtRest);
+    const hold = engaged || (paused && !cleanRest);
     if (!hold) timer.current = setTimeout(() => {
       setIdle(true);
       const delay = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : CHROME_FADE_OUT_MS;
       fadeTimer.current = setTimeout(() => setInteracting(false), delay);
     }, CHROME_IDLE_MS);
-  }, [engaged, paused, cleanAtRest, clearTimer]);
+  }, [engaged, paused, cleanRest, clearTimer]);
 
   useEffect(() => {
     clearTimer();
-    if (cleanAtRest && !engaged) { setIdle(true); setInteracting(false); }
+    if (cleanRest && !engaged) { setIdle(true); setInteracting(false); }
     else reveal();
     return clearTimer;
-  }, [paused, cleanAtRest, engaged, reveal, clearTimer]);
+  }, [paused, cleanRest, engaged, reveal, clearTimer]);
 
-  return { hidden: idle && !cleanAtRest, controlsIdle: idle, interacting, reveal };
+  return { hidden: idle && !cleanRest, controlsIdle: idle, interacting, reveal };
 }

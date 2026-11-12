@@ -773,7 +773,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
         />
       </div>
 
-      {sheet && !narrow && <div className="ps-frames">
+      {sheet && <div className="ps-frames">
           <div className="ps-strip-chrome" data-collapsed={open ? "" : undefined} inert={open} aria-hidden={open}>
             <div className="ps-strip-inner"><Strip sheet={sheet} open={open} idx={active} onSeek={seekFrame} onOpen={() => open ? hideSheet() : showSheet(document.activeElement?.matches(":focus-visible") ?? false)} /></div>
           </div>
