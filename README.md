@@ -11,7 +11,7 @@ Every player already builds a contact sheet. It is what powers the thumbnail tha
 
 Loupe shows all of them, as a filmstrip under the video and as a full sheet you can open beneath it. The sheet shows three rows at a time, scrolls by whole rows and follows the frame that is playing. Click a frame to jump there, drag across frames with a mouse to scrub, or move through them with the keyboard. The frame number and time appear on the frame that is playing and on the one you hover or focus.
 
-Then keep what you need. Save the whole sheet as a one page PDF, or mark the frames you want and save only those, shown larger. In both, every frame links back to its moment in the video.
+Then keep what you need. Save the whole sheet as a one page PDF, or mark the frames you want and save only those, shown larger. In both, every frame links back to its moment in the video. Click a frame in the PDF and the video opens right there.
 
 The player takes the shape of what it plays rather than boxing it, and reads light or dark from the page behind it. A liquid glass frame is optional.
 
