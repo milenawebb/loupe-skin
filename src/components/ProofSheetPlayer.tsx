@@ -512,6 +512,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
   const [overControls, setOverControls] = useState(false);
   const [keyFocus, setKeyFocus] = useState(false);
   const filmstripTouch = useRef(false);
+  const touchInput = useRef(false);
   const { hidden, controlsIdle, interacting, reveal } = useSheetChrome(paused, menuOpen || volumeEngaged || helpOpen || overControls || keyFocus, !hasPlayed || ended);
   const lastCaptionId = useRef<string | null>(null);
   if (selectedCaptionId) lastCaptionId.current = selectedCaptionId;
@@ -670,32 +671,39 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
     <Container ref={containerRef} data-narrow={narrow ? "" : undefined} data-compact={compact ? "" : undefined} data-theme={theme ?? detectedTheme} data-chrome-hidden={hidden ? "" : undefined} data-controls-idle={controlsIdle ? "" : undefined} data-sheet-open={open ? "" : undefined}
       tabIndex={0} role="region" aria-label="Contact sheet video player" aria-description="Press question mark for keyboard shortcuts."
       onPointerDownCapture={(event) => {
+        touchInput.current = event.pointerType === "touch";
         filmstripTouch.current = event.pointerType === "touch" && event.target instanceof Element && !!event.target.closest(".ps-frames");
-        if (event.target instanceof Element && event.target.closest('.ps-video, .ps-controls, .ps-slider') && sheetRef.current?.contains(document.activeElement)) containerRef.current?.focus({ preventScroll: true });
+        if (!touchInput.current && event.target instanceof Element && event.target.closest('.ps-video, .ps-controls, .ps-slider') && sheetRef.current?.contains(document.activeElement)) containerRef.current?.focus({ preventScroll: true });
       }}
       onPointerMove={(event) => {
-        if (event.pointerType === "touch" && event.target instanceof Element && event.target.closest(".ps-frames")) return;
+        if (event.pointerType === "mouse") touchInput.current = false;
+        if (event.pointerType === "touch" || touchInput.current) return;
         reveal();
         const over = event.target instanceof Element && !!event.target.closest(".ps-controls, .ps-slider");
         if (over !== overControls) setOverControls(over);
       }}
-      onPointerLeave={() => setOverControls(false)}
+      onPointerLeave={() => { if (!touchInput.current) setOverControls(false); }}
       onTouchStart={(event) => {
+        touchInput.current = true;
         filmstripTouch.current = event.target instanceof Element && !!event.target.closest(".ps-frames");
-        if (filmstripTouch.current) return;
-        reveal();
       }} onTouchMove={(event) => {
-        if (event.target instanceof Element && event.target.closest(".ps-frames")) return;
+        if (filmstripTouch.current || controlsIdle || hidden || (event.target instanceof Element && event.target.closest(".ps-frames"))) return;
         reveal();
       }}
       onFocusCapture={(event) => {
-        if (filmstripTouch.current) return;
+        if (touchInput.current || filmstripTouch.current || !(event.target instanceof Element) || !event.target.matches(":focus-visible")) return;
         reveal();
         const target = event.target;
         setKeyFocus(target !== event.currentTarget && target instanceof Element && target.matches(":focus-visible"));
       }}
-      onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyFocus(false); }}
+      onClick={(event) => {
+        if (!touchInput.current || filmstripTouch.current || (event.target instanceof Element && event.target.closest(".ps-frames"))) return;
+        if (event.target instanceof Element && event.target.closest('.ps-video, .ps-controls, .ps-slider') && sheetRef.current?.contains(document.activeElement)) containerRef.current?.focus({ preventScroll: true });
+        reveal();
+      }}
+      onBlurCapture={(event) => { if (!touchInput.current && !event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyFocus(false); }}
       onKeyDownCapture={(event) => {
+        touchInput.current = false;
         filmstripTouch.current = false;
         if (error) return;
         const wasHidden = !interacting && hasPlayed && !ended;
@@ -752,12 +760,13 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
             <Button variant="player" className="ps-error-retry" onClick={retrySource}>Try again</Button>
           </ErrorDialog.Popup>
         </ErrorDialog.Root>
-        {!error && <PlayButton render={(props) => <Button {...props} title={undefined} variant="player" className="ps-big-play"
+        {!error && <Button variant="player" className="ps-big-play"
+          onClick={() => { void store.play().catch(() => {}); }}
           data-visible={paused || ended ? "" : undefined} aria-label={ended ? "Replay video" : "Play video"}
           aria-hidden={!paused && !ended}
           tabIndex={paused || ended ? 0 : -1}>
           <InstrumentPlay replay={ended} />
-        </Button>} />}
+        </Button>}
       </div>
       <div ref={overlayRef} className="ps-overlay">
       <TimeSlider.Root hidden={!fullChromeVisible(hasPlayed, ended, interacting)} className="ps-slider ps-chrome" aria-label="Seek"

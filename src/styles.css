@@ -411,7 +411,8 @@
 .ps-sheet-tile > .ps-tile, .ps-strip .ps-tile { transform: none; box-shadow: none; filter: brightness(1); transition: filter 120ms ease; }
 .ps-sheet-tile > .ps-tile::after, .ps-strip .ps-tile::after { content: ""; position: absolute; inset: 0; border: 1px solid var(--accent); opacity: 0; pointer-events: none; transition: opacity 120ms ease; }
 .ps-sheet-tile:hover > .ps-tile, .ps-strip .ps-tile:hover { transform: none; box-shadow: none; filter: brightness(1.08); }
-.ps-sheet-tile:hover > .ps-tile::after, .ps-strip .ps-tile:hover::after { opacity: 1; }
+@media (hover: hover) and (pointer: fine) { .ps-sheet-tile:hover > .ps-tile::after, .ps-strip .ps-tile:hover::after { opacity: 1; }
+}
 .ps-sheet-tile:hover .ps-frame-number { color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   .ps-sheet-tile > .ps-tile, .ps-strip .ps-tile { transition: none; }
