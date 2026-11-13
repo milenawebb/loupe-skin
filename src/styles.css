@@ -472,8 +472,8 @@
   border: 1px solid var(--caption-hairline);
   font-family: var(--font-mono); text-align: center;
 }
-@supports (backdrop-filter: blur(1px)) {
-  .ps-state-glass { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ps-state-glass { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 }
 .ps-buffering {
   display: none; pointer-events: none; padding: 8px 14px; border-radius: 999px;
@@ -613,6 +613,37 @@
 @media (hover: none) and (pointer: coarse) { .ps-controls .ps-keys-trigger { display: none; }
 }
 .ps-player[data-narrow] .ps-controls { column-gap: 0; overflow: hidden; padding-inline: 0; }
+/* Narrow chrome reveals the stationary picture through the caption glass.
+   Accessibility modes retain the existing solid, theme-specific surfaces. */
+.ps-player[data-narrow] .ps-control-panel {
+  --text: var(--caption-text);
+  --dim: var(--caption-text);
+  --accent-hot: var(--caption-text);
+  background: var(--caption-background);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ps-player[data-narrow] .ps-control-panel {
+    --text: inherit; --dim: inherit; --accent-hot: inherit;
+    background: var(--chrome-surface);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+}
+@media (prefers-contrast: more) {
+  .ps-player[data-narrow] .ps-control-panel {
+    --text: inherit; --dim: inherit; --accent-hot: inherit;
+    background: var(--chrome-surface);
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+}
+@media (forced-colors: active) {
+  .ps-player[data-narrow] .ps-control-panel {
+    --text: CanvasText; --dim: CanvasText; --accent-hot: Highlight;
+    color: CanvasText; background: Canvas;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+}
 .ps-player[data-narrow] .ps-controls > .flex-1 { margin: 0; }
 .ps-player[data-narrow] .ps-controls .ps-ctrl { min-width: 0; width: 32px; flex-shrink: 1; letter-spacing: 0; }
 .ps-player[data-narrow] .ps-controls .ps-icon-control { min-width: 0; width: 32px; }
