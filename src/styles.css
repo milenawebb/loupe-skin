@@ -463,6 +463,46 @@
 .ps-player[data-narrow] .ps-captions { max-width: 90%; }
 .ps-captions[data-reduced] { font-size: calc(clamp(11px, 2.6cqw, 18px) * 0.88); }
 .ps-captions > span { display: block; white-space: pre-line; overflow-wrap: anywhere; }
+
+/* Playback feedback stays centered in the stationary video. */
+.ps-state-glass {
+  position: absolute; top: 50%; left: 50%; translate: -50% -50%; z-index: 8;
+  max-width: calc(100% - 32px); box-sizing: border-box;
+  background: var(--caption-background); color: var(--caption-text);
+  border: 1px solid var(--caption-hairline);
+  font-family: var(--font-mono); text-align: center;
+}
+@supports (backdrop-filter: blur(1px)) {
+  .ps-state-glass { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+}
+.ps-buffering {
+  display: none; pointer-events: none; padding: 8px 14px; border-radius: 999px;
+  font-size: 11px; letter-spacing: 0.08em; line-height: 1.35;
+}
+.ps-buffering[data-visible] { display: block; animation: ps-buffering-pulse 2.4s ease-in-out infinite; }
+@keyframes ps-buffering-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
+.ps-error { width: max-content; padding: 16px; border-radius: 0; }
+.ps-error-message { margin: 0 0 12px; font-size: 13px; font-weight: 400; line-height: 1.5; letter-spacing: 0; }
+.ps-error .ps-error-retry.ps-ctrl {
+  color: var(--caption-text); background: var(--caption-background);
+  border: 1px solid var(--caption-hairline); padding-inline: 16px; text-transform: none;
+}
+.ps-error .ps-error-retry.ps-ctrl:hover { color: var(--caption-text); background: var(--tile-label-background); }
+.ps-error .ps-error-retry.ps-ctrl:focus-visible { outline: 2px solid var(--caption-text); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .ps-buffering[data-visible], .ps-error, .ps-error .ps-error-retry.ps-ctrl { animation: none; transition: none; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .ps-state-glass { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (forced-colors: active) {
+  .ps-state-glass, .ps-error .ps-error-retry.ps-ctrl, .ps-error .ps-error-retry.ps-ctrl:hover {
+    color: CanvasText; background: Canvas; border-color: CanvasText;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+  .ps-error .ps-error-retry.ps-ctrl:focus-visible { outline-color: Highlight; }
+  .ps-buffering[data-visible] { animation: none; }
+}
 .ps-player .ps-controls [aria-pressed="true"], .ps-player .ps-controls [data-active] { color: var(--accent-hot); }
 .ps-player .ps-controls [aria-pressed="true"] > span, .ps-player .ps-controls [data-active] { text-decoration: underline; text-underline-offset: 4px; }
 .ps-player { display: flex; flex-direction: column; width: 100%; max-width: 100%; min-width: 0; }

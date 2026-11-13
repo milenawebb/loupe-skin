@@ -1,13 +1,15 @@
 import {
+  BufferingIndicator,
   Container,
   createPlayer,
+  ErrorDialog,
   FullscreenButton,
   PlayButton,
   Time,
   TimeSlider,
 } from "@videojs/react";
 import { videoFeatures } from "@videojs/react/video";
-import { MuxVideo } from "@videojs/react/media/mux-video";
+import { MuxVideo, type MuxVideoAdapter } from "@videojs/react/media/mux-video";
 import { useEffect, useLayoutEffect, useRef, useState, useId } from "react";
 import { KeyboardHelp } from "@/components/KeyboardHelp";
 import { playerFrameMetrics, playerVideoMetrics, snapAspectRatio, resolveAspectRatio, contactSheetTileWidth, stripTileWidth, sheetColumns } from "@/lib/player-layout";
@@ -464,6 +466,14 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
   const { sheet, ratio: storyboardRatio } = useStoryboard(playbackId);
   useEffect(() => { onFrameCount?.(sheet?.tiles.length ?? 0); }, [sheet, onFrameCount]);
   const store = usePlayer();
+  const error = usePlayer((s) => s.error);
+  const mediaRef = useRef<MuxVideoAdapter | null>(null);
+  const retrySource = () => {
+    const media = mediaRef.current;
+    if (!media) return;
+    store.dismissError();
+    void media.load().catch(() => {});
+  };
   const time = usePlayer((s) => s.currentTime);
   const playbackFrame = sheet ? frameAtTime(sheet.tiles, time) : 0;
   const transition = useSheetTransition(initialSheetOpen);
@@ -505,6 +515,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
   const lastCaptionId = useRef<string | null>(null);
   if (selectedCaptionId) lastCaptionId.current = selectedCaptionId;
   useVideoTap(videoWrap, dragging, () => {
+    if (error) return;
     if (store.state.paused) void store.play().catch(() => {});
     else store.pause();
   }, reveal, () => { void (store.state.isFullscreen ? store.exitFullscreen() : store.requestFullscreen()).catch(() => {}); });
@@ -668,6 +679,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
       }}
       onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyFocus(false); }}
       onKeyDownCapture={(event) => {
+        if (error) return;
         const wasHidden = !interacting && hasPlayed && !ended;
         reveal();
         if (event.key === "Tab" && wasHidden && event.target === event.currentTarget && !event.shiftKey) {
@@ -709,17 +721,24 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
         className="ps-video w-full"
         style={{ aspectRatio: ratio ?? undefined }}
       >
-        <MuxVideo crossOrigin="anonymous" source={captionPlaybackSource(playbackId, captionsUrl)} poster={`https://image.mux.com/${playbackId}/thumbnail.jpg?time=${posterTime}`} muted={muted} loop={loop} autoPlay={autoPlay} playsInline className="h-full w-full">
+        <MuxVideo mediaRef={mediaRef} crossOrigin="anonymous" source={captionPlaybackSource(playbackId, captionsUrl)} poster={`https://image.mux.com/${playbackId}/thumbnail.jpg?time=${posterTime}`} muted={muted} loop={loop} autoPlay={autoPlay} playsInline className="h-full w-full">
           {captionsUrl && <track key={captionsUrl} id={LOCAL_CAPTION_ID} kind="captions" srcLang="en" label="English" src={captionsUrl} default />}
         </MuxVideo>
         {sheet && preview && <SheetSeekPreview sheet={sheet} index={preview.index} resolving={preview.resolving} loading={preview.loading} />}
         {captionText && !menuOpen && !helpOpen && !volumeEngaged && <CaptionBox text={captionText} controlsVisible={(!controlsIdle || interacting) && fullChromeVisible(hasPlayed, ended, interacting)} />}
-        <PlayButton render={(props) => <Button {...props} title={undefined} variant="player" className="ps-big-play"
+        {hasPlayed && !error && <BufferingIndicator delay={500} className="ps-buffering ps-state-glass" role="status" aria-live="polite">BUFFERING</BufferingIndicator>}
+        <ErrorDialog.Root>
+          <ErrorDialog.Popup className="ps-error ps-state-glass">
+            <ErrorDialog.Title className="ps-error-message">This video could not be played.</ErrorDialog.Title>
+            <Button variant="player" className="ps-error-retry" onClick={retrySource}>Try again</Button>
+          </ErrorDialog.Popup>
+        </ErrorDialog.Root>
+        {!error && <PlayButton render={(props) => <Button {...props} title={undefined} variant="player" className="ps-big-play"
           data-visible={paused || ended ? "" : undefined} aria-label={ended ? "Replay video" : "Play video"}
           aria-hidden={!paused && !ended}
           tabIndex={paused || ended ? 0 : -1}>
           <InstrumentPlay replay={ended} />
-        </Button>} />
+        </Button>} />}
       </div>
       <div ref={overlayRef} className="ps-overlay">
       <TimeSlider.Root hidden={!fullChromeVisible(hasPlayed, ended, interacting)} className="ps-slider ps-chrome" aria-label="Seek"
@@ -758,7 +777,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
         <TrackAndSpeedControls host={containerRef} onOpenChange={setMenuOpen} captionsUrl={captionsUrl} selectedCaptionId={selectedCaptionId} selectCaption={selectCaption} />
         <Button ref={helpTrigger} variant="player" className="ps-keys-trigger" aria-label="Keyboard shortcuts" aria-expanded={helpOpen} onClick={helpMenu.toggle}><span>Keys</span></Button>
         {/* Narrow player boxes open the sheet from the bar, regardless of viewport. */}
-        {sheet && (
+        {sheet && !error && (
             <Button variant="player" className="ps-icon-control" aria-label={open ? "Close contact sheet" : "Open contact sheet"} aria-expanded={open}
               onClick={(event) => (open ? hideSheet() : showSheet(event.detail === 0))}>
               <GridIcon />
@@ -773,7 +792,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
         />
       </div>
 
-      {sheet && <div className="ps-frames">
+      {sheet && !error && <div className="ps-frames">
           <div className="ps-strip-chrome" data-collapsed={open ? "" : undefined} inert={open} aria-hidden={open}>
             <div className="ps-strip-inner"><Strip sheet={sheet} open={open} idx={active} onSeek={seekFrame} onOpen={() => open ? hideSheet() : showSheet(document.activeElement?.matches(":focus-visible") ?? false)} /></div>
           </div>
