@@ -336,6 +336,11 @@
 .ps-main, .ps-frames { min-width: 0; }
 .ps-main { position: relative; flex-shrink: 0; width: 100%; margin-inline: auto; }
 .ps-overlay { position: absolute; inset: auto 0 0; z-index: 4; }
+.ps-player[data-narrow] .ps-video-stage { position: relative; container-type: inline-size; }
+.ps-player[data-narrow] .ps-frames { position: relative; background: var(--chrome-surface); }
+.ps-player[data-narrow] .ps-big-play.ps-ctrl { --play-size: min(64px, calc(100cqw / var(--video-ratio) - 106px)); width: var(--play-size); height: var(--play-size); min-height: 0; z-index: 5; }
+.ps-player[data-narrow] .ps-strip-reservation { height: calc(max(44px, calc(64px / var(--video-ratio))) + 16px); }
+.ps-player[data-narrow][data-sheet-open] .ps-strip-reservation { height: 0; }
 .ps-control-panel { position: relative; z-index: 4; background: var(--chrome-surface); color: var(--text); backdrop-filter: blur(28px) saturate(160%); }
 .ps-controls.ps-rule-t { border-top: 0; }
 .ps-control-panel .ps-ctrl, .ps-control-panel .ps-ctrl:hover, .ps-control-panel .ps-ctrl[aria-pressed="true"] { color: var(--text); }

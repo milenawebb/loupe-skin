@@ -656,6 +656,12 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
     };
   }, [playbackId, ratio, frame]);
 
+  const frames = sheet && !error ? <div className="ps-frames">
+    <div className="ps-strip-chrome" data-collapsed={open ? "" : undefined} inert={open} aria-hidden={open}>
+      <div className="ps-strip-inner"><Strip sheet={sheet} open={open} idx={active} onSeek={seekFrame} onOpen={() => open ? hideSheet() : showSheet(document.activeElement?.matches(":focus-visible") ?? false)} /></div>
+    </div>
+  </div> : null;
+
   return (
     <div ref={frameRef} className="ps-glass-frame" data-frame={frame === "glass" && (thickness ?? 0) > 0 ? "glass" : "none"} data-ratio-pending={ratio === null ? "" : undefined} data-theme={theme ?? detectedTheme} style={{ "--player-width-limit": widthLimit ?? (ratio === null ? "0px" : `calc(70svh * ${ratio})`), "--frame-thickness": thickness === null ? undefined : `${thickness}px` } as React.CSSProperties}>
     <span className="ps-viewport-height" aria-hidden="true" />
@@ -728,6 +734,7 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
       }}
       className="ps-player" style={{ "--video-ratio": ratio ?? undefined, "--video-height-limit": heightLimit, "--sheet-seek-fill": preview && duration > 0 ? `${Math.max(0, Math.min(100, preview.time / duration * 100))}%` : undefined } as React.CSSProperties}>
       <div className="ps-main">
+      <div className="ps-video-stage">
       <div
         ref={videoWrap}
         className="ps-video w-full"
@@ -804,13 +811,11 @@ function Skin({ playbackId, title, startTime, aspectRatio, captionsUrl, theme, f
         />
       </div>
 
-      {sheet && !error && <div className="ps-frames">
-          <div className="ps-strip-chrome" data-collapsed={open ? "" : undefined} inert={open} aria-hidden={open}>
-            <div className="ps-strip-inner"><Strip sheet={sheet} open={open} idx={active} onSeek={seekFrame} onOpen={() => open ? hideSheet() : showSheet(document.activeElement?.matches(":focus-visible") ?? false)} /></div>
-          </div>
-      </div>}
+      {!narrow && frames}
       </div>
       </div>
+      </div>
+      {narrow && !error && (frames ?? <div className="ps-strip-reservation" aria-hidden="true" />)}
       </div>
 
       {sheet && <SheetExpansion open={open}><ContactSheet sheet={sheet} title={title} playbackId={playbackId} open={open} focusRequest={sheetFocusRequest} playing={!paused && !ended} idx={active} onSeek={seekFrame} onHold={holdFrame} onCancelHold={cancelHold} onClose={hideSheet} sheetRef={sheetRef} dragging={dragging} /></SheetExpansion>}
